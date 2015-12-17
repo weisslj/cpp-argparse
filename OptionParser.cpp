@@ -551,6 +551,9 @@ string Option::format_help(unsigned int indent /* = 2 */) const {
   }
   if (help() != "") {
     string help_str = (get_default() != "") ? str_replace(help(), "%default", get_default()) : help();
+    if (type() == "choice") {
+        help_str = str_replace(help_str, "%choices", str_join("|", _choices.begin(), _choices.end()));
+    }
     ss << str_format(help_str, opt_width, width, indent_first);
   }
   return ss.str();
