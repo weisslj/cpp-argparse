@@ -1,6 +1,7 @@
 #include "OptionParser.h"
 
 #include <iostream>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <complex>
@@ -12,15 +13,15 @@ using namespace optparse;
 
 class Output {
 public:
-  Output(const string& d) : delim(d), first(true) {}
+  Output(stringstream& ss, const string& d) : stream(ss), delim(d), first(true) {}
   void operator() (const string& s) {
     if (first)
       first = false;
     else
-      cout << delim;
-    cout << s;
+      stream << delim;
+    stream << s;
   }
-  ~Output() { cout << endl; }
+  stringstream& stream;
   const string& delim;
   bool first;
 };
@@ -32,6 +33,7 @@ public:
     counter++;
     cout << "--- MyCallback --- " << counter << ". time called" << endl;
     cout << "--- MyCallback --- option.action(): " << option.action() << endl;
+    cout << "--- MyCallback --- option.type(): " << option.type() << endl;
     cout << "--- MyCallback --- opt: " << opt << endl;
     cout << "--- MyCallback --- val: " << val << endl;
     cout << "--- MyCallback --- parser.usage(): " << parser.usage() << endl;
@@ -42,11 +44,9 @@ public:
 
 int main(int argc, char *argv[])
 {
-#ifndef DISABLE_USAGE
-  const string usage = "usage: %prog [OPTION]... DIR [FILE]...";
-#else
-  const string usage = SUPPRESS_USAGE;
-#endif
+  const string usage =
+    (!getenv("DISABLE_USAGE")) ?
+    "usage: %prog [OPTION]... DIR [FILE]..." : SUPPRESS_USAGE;
   const string version = "%prog 1.0\nCopyright (C) 2010 Johannes Weißl\n"
     "License GPLv3+: GNU GPL version 3 or later "
     "<http://gnu.org/licenses/gpl.html>.\n"
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     " ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae"
     " dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit"
     " aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos"
-    " qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui"
+    " qui ratione voluptatem sequi nesciunt.\nNeque porro quisquam est, qui"
     " dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia"
     " non numquam eius modi tempora incidunt ut labore et dolore magnam"
     " aliquam quaerat voluptatem.";
@@ -74,10 +74,9 @@ int main(int argc, char *argv[])
     .version(version)
     .description(desc)
     .epilog(epilog)
-#ifdef DISABLE_INTERSPERSED_ARGS
-    .disable_interspersed_args()
-#endif
   ;
+  if (getenv("DISABLE_INTERSPERSED_ARGS"))
+    parser.disable_interspersed_args();
 
   parser.set_defaults("verbosity", "50");
   parser.set_defaults("no_clear", "0");
@@ -101,18 +100,37 @@ int main(int argc, char *argv[])
   parser.add_option("-c", "--complex") .action("store") .type("complex");
   char const* const choices[] = { "foo", "bar", "baz" };
   parser.add_option("-C", "--choices") .choices(&choices[0], &choices[3]). help("choose from [%choices]");
+#if __cplusplus >= 201103L
+  parser.add_option("--choices-list") .choices({"item1", "item2", "item3"}). help("choose from [%choices]");
+#else
+  char const* const choices_list[] = { "item1", "item2", "item3" };
+  parser.add_option("--choices-list") .choices(&choices_list[0], &choices_list[3]). help("choose from [%choices]");
+#endif
   parser.add_option("-m", "--more") .action("append");
   parser.add_option("--more-milk") .action("append_const") .set_const("milk");
   parser.add_option("--hidden") .help(SUPPRESS_HELP);
 
+  // test for 325cb47
+  parser.add_option("--option1") .action("store") .type("int") .set_default(1);
+  parser.add_option("--option2") .action("store") .type("int") .set_default("1");
+  parser.set_defaults("option1", "640");
+  parser.set_defaults("option2", 640); // now works
+
   MyCallback mc;
   parser.add_option("-K", "--callback") .action("callback") .callback(mc) .help("callback test");
+  parser.add_option("--string-callback") .action("callback") .callback(mc) .type("string") .help("callback test");
 
-  OptionGroup group = OptionGroup(parser, "Dangerous Options",
+  OptionGroup group1 = OptionGroup(parser, "Dangerous Options",
       "Caution: use these options at your own risk. "
-      "It is believed that some of them bite.");
-  group.add_option("-g") .action("store_true") .help("Group option.") .set_default("0");
-  parser.add_option_group(group);
+      "It is believed that some of them\nbite.");
+  group1.add_option("-g") .action("store_true") .help("Group option.") .set_default("0");
+  parser.add_option_group(group1);
+
+  OptionGroup group2 = OptionGroup(parser, "Size Options", "Image Size Options.");
+  group2.add_option("-w", "--width") .action("store") .type("int") .set_default(640) .help("default: %default");
+  group2.add_option("--height") .action("store") .type("int") .help("default: %default");
+  parser.set_defaults("height", 480);
+  parser.add_option_group(group2);
 
   Values& options = parser.parse_args(argc, argv);
   vector<string> args = parser.args();
@@ -133,16 +151,23 @@ int main(int argc, char *argv[])
   }
   cout << "complex: " << c << endl;
   cout << "choices: " << (const char*) options.get("choices") << endl;
-  cout << "more: ";
-  for_each(options.all("more").begin(), options.all("more").end(), Output(", "));
-  cout << "more_milk: ";
+  cout << "choices-list: " << (const char*) options.get("choices_list") << endl;
   {
-    Output out(", ");
-    for (Values::iterator it = options.all("more_milk").begin(); it != options.all("more_milk").end(); ++it)
-      out(*it);
+    stringstream ss;
+    for_each(options.all("more").begin(), options.all("more").end(), Output(ss, ", "));
+    cout << "more: " << ss.str() << endl;
   }
+  cout << "more_milk:" << endl;
+  for (Values::iterator it = options.all("more_milk").begin(); it != options.all("more_milk").end(); ++it)
+    cout << "- " << *it << endl;
   cout << "hidden: " << options["hidden"] << endl;
   cout << "group: " << (options.get("g") ? "true" : "false") << endl;
+
+  cout << "option1: " << (int) options.get("option1") << std::endl;
+  cout << "option2: " << (int) options.get("option2") << std::endl;
+
+  cout << "width: " << (int) options.get("width") << std::endl;
+  cout << "height: " << (int) options.get("height") << std::endl;
 
   cout << endl << "leftover arguments: " << endl;
   for (vector<string>::const_iterator it = args.begin(); it != args.end(); ++it) {

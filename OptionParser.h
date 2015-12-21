@@ -1,60 +1,7 @@
 /**
  * Copyright (C) 2010 Johannes Weißl <jargon@molb.org>
- * License: your favourite BSD-style license
- *
- * git clone http://github.com/weisslj/cpp-optparse.git
- *
- * This is yet another option parser for C++. It is modelled after the
- * excellent Python optparse API. Although incomplete, anyone familiar to
- * optparse should feel at home:
- * http://docs.python.org/library/optparse.html
- *
- * Design decisions:
- * - elegant and easy usage more important than speed / flexibility
- * - shortness more important than feature completeness
- *   * no unicode
- *   * no checking for user programming errors
- *
- * Why not use getopt/getopt_long?
- * - not C++ / not completely POSIX
- * - too cumbersome to use, would need lot of additional code
- *
- * Why not use Boost.Program_options?
- * - boost not installed on all target platforms (esp. cluster, HPC, ...)
- * - too big to include just for option handling:
- *   322 *.h (44750 lines) + 7 *.cpp (2078 lines)
- *
- * Why not use tclap/Opag/Options/CmdLine/Anyoption/Argument_helper/...?
- * - no reason, writing one is faster than code inspection :-)
- * - similarity to Python desired for faster learning curve
- *
- * Future work:
- * - nargs > 1?
- * - comments?
- *
- * Python only features:
- * - conflict handlers
- * - adding new actions
- *
- *
- * Example:
- *
- * using optparse::OptionParser;
- *
- * OptionParser parser = OptionParser() .description("just an example");
- *
- * parser.add_option("-f", "--file") .dest("filename")
- *                   .help("write report to FILE") .metavar("FILE");
- * parser.add_option("-q", "--quiet")
- *                   .action("store_false") .dest("verbose") .set_default("1")
- *                   .help("don't print status messages to stdout");
- * 
- * optparse::Values options = parser.parse_args(argc, argv);
- * vector<string> args = parser.args();
- *
- * if (options.get("verbose"))
- *     cout << options["filename"] << endl;
- *
+ * License: MIT License
+ * URL: https://github.com/weisslj/cpp-optparse
  */
 
 #ifndef OPTIONPARSER_H_
@@ -126,7 +73,33 @@ class Values {
     std::set<std::string> _userSet;
 };
 
-class OptionParser {
+class OptionContainer {
+  public:
+    OptionContainer(const std::string& d = "") : _description(d) {}
+    virtual ~OptionContainer() {}
+
+    virtual OptionContainer& description(const std::string& d) { _description = d; return *this; }
+    virtual const std::string& description() const { return _description; }
+
+    Option& add_option(const std::string& opt);
+    Option& add_option(const std::string& opt1, const std::string& opt2);
+    Option& add_option(const std::string& opt1, const std::string& opt2, const std::string& opt3);
+    Option& add_option(const std::vector<std::string>& opt);
+
+    std::string format_option_help(unsigned int indent = 2) const;
+
+  protected:
+    std::string _description;
+
+    std::list<Option> _opts;
+    optMap _optmap_s;
+    optMap _optmap_l;
+
+  private:
+    virtual const OptionParser& get_parser() = 0;
+};
+
+class OptionParser : public OptionContainer {
   public:
     OptionParser();
     virtual ~OptionParser() {}
@@ -156,11 +129,6 @@ class OptionParser {
     const std::string& epilog() const { return _epilog; }
     bool interspersed_args() const { return _interspersed_args; }
 
-    Option& add_option(const std::string& opt);
-    Option& add_option(const std::string& opt1, const std::string& opt2);
-    Option& add_option(const std::string& opt1, const std::string& opt2, const std::string& opt3);
-    Option& add_option(const std::vector<std::string>& opt);
-
     Values& parse_args(int argc, char const* const* argv);
     Values& parse_args(const std::vector<std::string>& args);
     template<typename InputIterator>
@@ -174,7 +142,6 @@ class OptionParser {
     }
 
     std::string format_help() const;
-    std::string format_option_help(unsigned int indent = 2) const;
     void print_help() const;
 
     void set_usage(const std::string& u);
@@ -190,6 +157,7 @@ class OptionParser {
     void exit() const;
 
   private:
+    const OptionParser& get_parser() { return *this; }
     const Option& lookup_short_opt(const std::string& opt) const;
     const Option& lookup_long_opt(const std::string& opt) const;
 
@@ -202,7 +170,6 @@ class OptionParser {
 
     std::string _usage;
     std::string _version;
-    std::string _description;
     bool _add_help_option;
     bool _add_version_option;
     std::string _prog;
@@ -211,40 +178,41 @@ class OptionParser {
 
     Values _values;
 
-    std::list<Option> _opts;
-    optMap _optmap_s;
-    optMap _optmap_l;
     strMap _defaults;
     std::list<OptionGroup const*> _groups;
 
     std::list<std::string> _remaining;
     std::list<std::string> _leftover;
+
+    friend class Option;
 };
 
-class OptionGroup : public OptionParser {
+class OptionGroup : public OptionContainer {
   public:
     OptionGroup(const OptionParser& p, const std::string& t, const std::string& d = "") :
-      _parser(p), _title(t), _group_description(d) {}
+      OptionContainer(d), _parser(p), _title(t) {}
     virtual ~OptionGroup() {}
 
     OptionGroup& title(const std::string& t) { _title = t; return *this; }
-    OptionGroup& group_description(const std::string& d) { _group_description = d; return *this; }
     const std::string& title() const { return _title; }
-    const std::string& group_description() const { return _group_description; }
 
   private:
+    const OptionParser& get_parser() { return _parser; }
+
     const OptionParser& _parser;
     std::string _title;
-    std::string _group_description;
+
+  friend class OptionParser;
 };
 
 class Option {
   public:
-    Option() : _action("store"), _type("string"), _nargs(1), _callback(0) {}
+    Option(const OptionParser& p) :
+      _parser(p), _action("store"), _type("string"), _nargs(1), _callback(0) {}
     virtual ~Option() {}
 
     Option& action(const std::string& a);
-    Option& type(const std::string& t) { _type = t; return *this; }
+    Option& type(const std::string& t);
     Option& dest(const std::string& d) { _dest = d; return *this; }
     Option& set_default(const std::string& d) { _default = d; return *this; }
     template<typename T>
@@ -255,6 +223,11 @@ class Option {
     Option& choices(InputIterator begin, InputIterator end) {
       _choices.assign(begin, end); type("choice"); return *this;
     }
+#if __cplusplus >= 201103L
+    Option& choices(std::initializer_list<std::string> ilist) {
+      _choices.assign(ilist); type("choice"); return *this;
+    }
+#endif
     Option& help(const std::string& h) { _help = h; return *this; }
     Option& metavar(const std::string& m) { _metavar = m; return *this; }
     Option& callback(Callback& c) { _callback = &c; return *this; }
@@ -262,7 +235,7 @@ class Option {
     const std::string& action() const { return _action; }
     const std::string& type() const { return _type; }
     const std::string& dest() const { return _dest; }
-    const std::string& get_default() const { return _default; }
+    const std::string& get_default() const;
     size_t nargs() const { return _nargs; }
     const std::string& get_const() const { return _const; }
     const std::list<std::string>& choices() const { return _choices; }
@@ -274,6 +247,8 @@ class Option {
     std::string check_type(const std::string& opt, const std::string& val) const;
     std::string format_option_help(unsigned int indent = 2) const;
     std::string format_help(unsigned int indent = 2) const;
+
+    const OptionParser& _parser;
 
     std::set<std::string> _short_opts;
     std::set<std::string> _long_opts;
@@ -289,6 +264,7 @@ class Option {
     std::string _metavar;
     Callback* _callback;
 
+    friend class OptionContainer;
     friend class OptionParser;
 };
 

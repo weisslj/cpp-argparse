@@ -1,8 +1,7 @@
 /**
  * Copyright (C) 2010 Johannes Weißl <jargon@molb.org>
- * License: your favourite BSD-style license
- *
- * See OptionParser.h for help.
+ * License: MIT License
+ * URL: https://github.com/weisslj/cpp-optparse
  */
 
 #include "OptionParser.h"
@@ -61,9 +60,13 @@ static string str_replace(const string& s, const string& patt, const string& rep
   str_replace(tmp, patt, repl);
   return tmp;
 }
-static string str_format(const string& s, size_t pre, size_t len, bool indent_first = true) {
+static string str_format(const string& str, size_t pre, size_t len, bool running_text = true, bool indent_first = true) {
+  string s = str;
   stringstream ss;
   string p;
+  len -= 2; // Python seems to not use full length
+  if (running_text)
+    replace(s.begin(), s.end(), '\n', ' ');
   if (indent_first)
     p = string(pre, ' ');
 
@@ -125,27 +128,21 @@ static string basename(const string& s) {
 ////////// } auxiliary (string) functions //////////
 
 
-////////// class OptionParser { //////////
-OptionParser::OptionParser() :
-  _usage(_("%prog [options]")),
-  _add_help_option(true),
-  _add_version_option(true),
-  _interspersed_args(true) {}
-
-Option& OptionParser::add_option(const string& opt) {
+////////// class OptionContainer { //////////
+Option& OptionContainer::add_option(const string& opt) {
   const string tmp[1] = { opt };
   return add_option(vector<string>(&tmp[0], &tmp[1]));
 }
-Option& OptionParser::add_option(const string& opt1, const string& opt2) {
+Option& OptionContainer::add_option(const string& opt1, const string& opt2) {
   const string tmp[2] = { opt1, opt2 };
   return add_option(vector<string>(&tmp[0], &tmp[2]));
 }
-Option& OptionParser::add_option(const string& opt1, const string& opt2, const string& opt3) {
+Option& OptionContainer::add_option(const string& opt1, const string& opt2, const string& opt3) {
   const string tmp[3] = { opt1, opt2, opt3 };
   return add_option(vector<string>(&tmp[0], &tmp[3]));
 }
-Option& OptionParser::add_option(const vector<string>& v) {
-  _opts.resize(_opts.size()+1);
+Option& OptionContainer::add_option(const vector<string>& v) {
+  _opts.resize(_opts.size()+1, Option(get_parser()));
   Option& option = _opts.back();
   string dest_fallback;
   for (vector<string>::const_iterator it = v.begin(); it != v.end(); ++it) {
@@ -167,6 +164,28 @@ Option& OptionParser::add_option(const vector<string>& v) {
     option.dest(dest_fallback);
   return option;
 }
+string OptionContainer::format_option_help(unsigned int indent /* = 2 */) const {
+  stringstream ss;
+
+  if (_opts.empty())
+    return ss.str();
+
+  for (list<Option>::const_iterator it = _opts.begin(); it != _opts.end(); ++it) {
+    if (it->help() != SUPPRESS_HELP)
+      ss << it->format_help(indent);
+  }
+
+  return ss.str();
+}
+////////// } class OptionContainer //////////
+
+////////// class OptionParser { //////////
+OptionParser::OptionParser() :
+  OptionContainer(),
+  _usage(_("%prog [options]")),
+  _add_help_option(true),
+  _add_version_option(true),
+  _interspersed_args(true) {}
 
 OptionParser& OptionParser::add_option_group(const OptionGroup& group) {
   for (list<Option>::const_iterator oit = group._opts.begin(); oit != group._opts.end(); ++oit) {
@@ -213,11 +232,14 @@ const Option& OptionParser::lookup_long_opt(const string& opt) const {
 
   list<string> matching;
   for (optMap::const_iterator it = _optmap_l.begin(); it != _optmap_l.end(); ++it) {
-    if (it->first.compare(0, opt.length(), opt) == 0)
+    if (it->first.compare(0, opt.length(), opt) == 0) {
       matching.push_back(it->first);
+      if (it->first.length() == opt.length())
+        break;
+    }
   }
   if (matching.size() > 1) {
-    string x = str_join(", ", matching.begin(), matching.end());
+    string x = str_join_trans(", ", matching.begin(), matching.end(), str_wrap("--", ""));
     error(_("ambiguous option") + string(": --") + opt + " (" + x + "?)");
   }
   if (matching.size() == 0)
@@ -261,12 +283,12 @@ Values& OptionParser::parse_args(const vector<string>& v) {
 
   _remaining.assign(v.begin(), v.end());
 
-  if (add_version_option() and version() != "") {
-    add_option("--version") .action("version") .help(_("show program's version number and exit"));
-    _opts.splice(_opts.begin(), _opts, --(_opts.end()));
-  }
   if (add_help_option()) {
     add_option("-h", "--help") .action("help") .help(_("show this help message and exit"));
+    _opts.splice(_opts.begin(), _opts, --(_opts.end()));
+  }
+  if (add_version_option() and version() != "") {
+    add_option("--version") .action("version") .help(_("show program's version number and exit"));
     _opts.splice(_opts.begin(), _opts, --(_opts.end()));
   }
 
@@ -295,26 +317,16 @@ Values& OptionParser::parse_args(const vector<string>& v) {
     _leftover.push_back(arg);
   }
 
-  for (strMap::const_iterator it = _defaults.begin(); it != _defaults.end(); ++it) {
-    if (not _values.is_set(it->first))
-      _values[it->first] = it->second;
-  }
-
   for (list<Option>::const_iterator it = _opts.begin(); it != _opts.end(); ++it) {
     if (it->get_default() != "" and not _values.is_set(it->dest()))
-        _values[it->dest()] = it->get_default();
+      _values[it->dest()] = it->get_default();
   }
 
   for (list<OptionGroup const*>::iterator group_it = _groups.begin(); group_it != _groups.end(); ++group_it) {
-      for (strMap::const_iterator it = (*group_it)->_defaults.begin(); it != (*group_it)->_defaults.end(); ++it) {
-          if (not _values.is_set(it->first))
-              _values[it->first] = it->second;
-      }
-      
-      for (list<Option>::const_iterator it = (*group_it)->_opts.begin(); it != (*group_it)->_opts.end(); ++it) {
-          if (it->get_default() != "" and not _values.is_set(it->dest()))
-              _values[it->dest()] = it->get_default();
-      }
+    for (list<Option>::const_iterator it = (*group_it)->_opts.begin(); it != (*group_it)->_opts.end(); ++it) {
+      if (it->get_default() != "" and not _values.is_set(it->dest()))
+        _values[it->dest()] = it->get_default();
+    }
   }
 
   return _values;
@@ -366,22 +378,11 @@ void OptionParser::process_opt(const Option& o, const string& opt, const string&
     std::exit(0);
   }
   else if (o.action() == "callback" && o.callback()) {
+    string err = o.check_type(opt, value);
+    if (err != "")
+      error(err);
     (*o.callback())(o, opt, value, *this);
   }
-}
-
-string OptionParser::format_option_help(unsigned int indent /* = 2 */) const {
-  stringstream ss;
-
-  if (_opts.empty())
-    return ss.str();
-
-  for (list<Option>::const_iterator it = _opts.begin(); it != _opts.end(); ++it) {
-    if (it->help() != SUPPRESS_HELP)
-      ss << it->format_help(indent);
-  }
-
-  return ss.str();
 }
 
 string OptionParser::format_help() const {
@@ -399,8 +400,10 @@ string OptionParser::format_help() const {
   for (list<OptionGroup const*>::const_iterator it = _groups.begin(); it != _groups.end(); ++it) {
     const OptionGroup& group = **it;
     ss << endl << "  " << group.title() << ":" << endl;
-    if (group.group_description() != "")
-      ss << str_format(group.group_description(), 4, cols()) << endl;
+    if (group.description() != "") {
+      unsigned int malus = 4; // Python seems to not use full length
+      ss << str_format(group.description(), 4, cols() - malus) << endl;
+    }
     ss << group.format_option_help(4);
   }
 
@@ -512,7 +515,7 @@ string Option::format_option_help(unsigned int indent /* = 2 */) const {
   if (nargs() == 1) {
     string mvar = metavar();
     if (mvar == "") {
-      mvar = type();
+      mvar = dest();
       transform(mvar.begin(), mvar.end(), mvar.begin(), ::toupper);
      }
     mvar_short = " " + mvar;
@@ -554,7 +557,7 @@ string Option::format_help(unsigned int indent /* = 2 */) const {
     if (type() == "choice") {
         help_str = str_replace(help_str, "%choices", str_join("|", _choices.begin(), _choices.end()));
     }
-    ss << str_format(help_str, opt_width, width, indent_first);
+    ss << str_format(help_str, opt_width, width, false, indent_first);
   }
   return ss.str();
 }
@@ -562,9 +565,28 @@ string Option::format_help(unsigned int indent /* = 2 */) const {
 Option& Option::action(const string& a) {
   _action = a;
   if (a == "store_const" || a == "store_true" || a == "store_false" ||
-      a == "append_const" || a == "count" || a == "help" || a == "version")
+      a == "append_const" || a == "count" || a == "help" || a == "version") {
     nargs(0);
+  } else if (a == "callback") {
+    nargs(0);
+    type("");
+  }
   return *this;
+}
+
+
+Option& Option::type(const std::string& t) {
+  _type = t;
+  nargs((t == "") ? 0 : 1);
+  return *this;
+}
+
+const std::string& Option::get_default() const {
+  strMap::const_iterator it = _parser._defaults.find(dest());
+  if (it != _parser._defaults.end())
+    return it->second;
+  else
+    return _default;
 }
 ////////// } class Option //////////
 
