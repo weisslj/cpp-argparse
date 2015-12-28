@@ -99,12 +99,12 @@ int main(int argc, char *argv[])
   parser.add_option("-f", "--float") .action("store") .type("float") .set_default(5.3) .help("default: %default");
   parser.add_option("-c", "--complex") .action("store") .type("complex");
   char const* const choices[] = { "foo", "bar", "baz" };
-  parser.add_option("-C", "--choices") .choices(&choices[0], &choices[3]);
+  parser.add_option("-C", "--choices") .choices(&choices[0], &choices[3]). help("choose from [%choices]");
 #if __cplusplus >= 201103L
-  parser.add_option("--choices-list") .choices({"item1", "item2", "item3"});
+  parser.add_option("--choices-list") .choices({"item1", "item2", "item3"}). help("choose from [%choices]");
 #else
   char const* const choices_list[] = { "item1", "item2", "item3" };
-  parser.add_option("--choices-list") .choices(&choices_list[0], &choices_list[3]);
+  parser.add_option("--choices-list") .choices(&choices_list[0], &choices_list[3]). help("choose from [%choices]");
 #endif
   parser.add_option("-m", "--more") .action("append");
   parser.add_option("--more-milk") .action("append_const") .set_const("milk");

@@ -81,9 +81,9 @@ def main():
     parser.add_option("-f", "--float", action="store", type="float", default=5.3, help="default: %default")
     parser.add_option("-c", "--complex", action="store", type="complex")
     choices = ["foo", "bar", "baz"]
-    parser.add_option("-C", "--choices", choices=choices)
+    parser.add_option("-C", "--choices", choices=choices, help="choose from [{0}]".format("|".join(choices)))
     choices_list = ["item1", "item2", "item3"]
-    parser.add_option("--choices-list", choices=choices_list)
+    parser.add_option("--choices-list", choices=choices_list, help="choose from [{0}]".format("|".join(choices_list)))
     parser.add_option("-m", "--more", action="append")
     parser.add_option("--more-milk", action="append_const", const="milk")
     parser.add_option("--hidden", help=SUPPRESS_HELP)
