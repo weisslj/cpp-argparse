@@ -143,6 +143,10 @@ int main(int argc, char *argv[])
   cout << "number: " << (int) options.get("number") << endl;
   cout << "int: " << (int) options.get("int") << endl;
   cout << "float: " << (float) options.get("float") << endl;
+  // test template getters
+  cout << "number<template>: " << options.get<int>("number") << endl;
+  cout << "int<template>: " << options.get<int>("int") << endl;
+  cout << "float<template>: " << options.get<float>("float") << endl;
   complex<double> c = 0;
   if (options.is_set("complex")) {
     stringstream ss;
