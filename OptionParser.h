@@ -61,6 +61,8 @@ class Values {
     bool is_set_by_user(const std::string& d) const { return _userSet.find(d) != _userSet.end(); }
     void is_set_by_user(const std::string& d, bool yes);
     Value get(const std::string& d) const { return (is_set(d)) ? Value((*this)[d]) : Value(); }
+    template<typename T>
+    T get(const std::string& d) const { return (is_set(d)) ? Value((*this)[d]) : T(); }
 
     typedef std::list<std::string>::iterator iterator;
     typedef std::list<std::string>::const_iterator const_iterator;
