@@ -179,7 +179,7 @@ class OptionParser : public OptionContainer {
     Values _values;
 
     strMap _defaults;
-    std::list<OptionGroup const*> _groups;
+    std::list<OptionGroup> _groups;
 
     std::list<std::string> _remaining;
     std::list<std::string> _leftover;
